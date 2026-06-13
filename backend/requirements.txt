@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+motor>=3.6.0
+beanie
+passlib[bcrypt]
+python-dotenv
+httpx
+python-multipart
+pydantic-settings
+python-jose[cryptography]
