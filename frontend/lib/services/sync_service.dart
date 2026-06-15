@@ -91,8 +91,8 @@ class SyncService {
           // Session is invalid; avoid force full-sync loops with expired token.
           return false;
         }
-        await initialLoad(force: true);
-        return true;
+        // Keep local cache stable; avoid replacing visible data on transient errors.
+        return false;
       }
     } catch (_) {
       return false;

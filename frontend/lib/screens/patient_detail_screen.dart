@@ -100,6 +100,9 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> {
       _patient = patient;
       _isLoading = patient == null;
     });
+    if (patient == null) {
+      unawaited(_ensurePatientDataLoaded());
+    }
   }
 
   @override
