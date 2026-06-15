@@ -228,12 +228,15 @@ async def get_statistics() -> dict:
             if _is_phase_completed(patient, phase):
                 phase_completed[phase] += 1
 
+    completion_rate = (completed_total / total * 100) if total > 0 else 0.0
+
     return {
         "total_patients": total,
         "completed_patients": completed_total,
         "incomplete_patients": incomplete_total,
         "zero_step_patients": zero_step_total,
         "phase_completed": phase_completed,
+        "completion_rate": round(completion_rate, 1),
     }
 
 

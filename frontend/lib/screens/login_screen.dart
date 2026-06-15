@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../core/theme/app_theme.dart';
 import '../services/auth_service.dart';
@@ -42,13 +44,8 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = false);
 
     if (result['success'] == true) {
-      setState(() => _isLoading = true);
-      try {
-        await SyncService.instance.initialLoad(force: true);
-        await SyncService.instance.syncNow();
-      } catch (_) {}
-      if (!mounted) return;
-      setState(() => _isLoading = false);
+      // Navigate immediately for fast first-login UX, then sync in background.
+      unawaited(SyncService.instance.syncNow());
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const PatientsListScreen()),
       );

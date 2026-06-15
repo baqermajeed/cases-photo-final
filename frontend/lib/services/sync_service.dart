@@ -11,6 +11,7 @@ class SyncService {
   SyncService._();
 
   static final SyncService instance = SyncService._();
+  static const int _initialPageSize = 30;
 
   final PatientLocalRepository _localRepository =
       PatientLocalRepository.instance;
@@ -31,15 +32,19 @@ class SyncService {
       await _localRepository.init();
     }
 
+    _startPeriodicSync();
+    _startConnectivityWatcher();
+    _initialized = true;
+
+    // Do not block app startup on network calls.
+    unawaited(_runInitialSyncInBackground());
+  }
+
+  Future<void> _runInitialSyncInBackground() async {
     try {
       await initialLoad();
     } catch (_) {}
-
     await syncNow();
-    _startPeriodicSync();
-    _startConnectivityWatcher();
-
-    _initialized = true;
   }
 
   Future<void> initialLoad({bool force = false}) async {
@@ -51,7 +56,11 @@ class SyncService {
       throw Exception('no-internet');
     }
 
-    final patients = await _remoteRepository.fetchAllForOffline();
+    final firstPage = await _remoteRepository.fetchPatientsPage(
+      page: 1,
+      limit: _initialPageSize,
+    );
+    final patients = firstPage['patients'] as List<Patient>;
     await _localRepository.replaceAll(patients);
     await _localRepository.setLastSync(DateTime.now().toUtc());
   }

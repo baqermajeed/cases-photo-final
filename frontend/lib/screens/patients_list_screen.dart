@@ -10,6 +10,7 @@ import '../models/user.dart';
 import '../repositories/local/patient_local_repository.dart';
 import '../repositories/remote/patient_remote_repository.dart';
 import '../services/auth_service.dart';
+import '../services/network_checker.dart';
 import '../services/sync_service.dart';
 import 'add_patient_screen.dart';
 import 'patient_detail_screen.dart';
@@ -25,20 +26,33 @@ class PatientsListScreen extends StatefulWidget {
 }
 
 class _PatientsListScreenState extends State<PatientsListScreen> {
+  static const int _pageSize = 30;
   final _remoteRepository = PatientRemoteRepository();
   final _authService = AuthService();
   final _localRepository = PatientLocalRepository.instance;
   final _syncService = SyncService.instance;
   final _searchController = TextEditingController();
+  final _scrollController = ScrollController();
   String? _searchQuery;
   User? _currentUser;
+  Timer? _searchDebounce;
+  bool _isLoadingMore = false;
+  bool _hasMoreRemote = true;
+  int _nextPage = 2;
+  bool _isSearchingRemote = false;
+  bool _isLoadingMoreSearch = false;
+  bool _hasMoreSearchResults = false;
+  int _nextSearchPage = 2;
+  List<Patient>? _remoteSearchResults;
 
   @override
   void initState() {
     super.initState();
+    _initializePagingState();
+    _scrollController.addListener(_onScroll);
     _loadCurrentUser();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _syncService.syncNow();
+      unawaited(_syncService.syncNow());
     });
   }
 
@@ -51,8 +65,76 @@ class _PatientsListScreenState extends State<PatientsListScreen> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _initializePagingState() {
+    final localCount = _localRepository.getPatients().length;
+    final localPages = (localCount / _pageSize).ceil();
+    _nextPage = (localPages <= 0) ? 2 : (localPages + 1);
+    _hasMoreRemote = true;
+  }
+
+  void _onScroll() {
+    if (_searchQuery != null) {
+      if (_isLoadingMoreSearch || !_hasMoreSearchResults) return;
+    } else if (_isLoadingMore || !_hasMoreRemote) {
+      return;
+    }
+    if (!_scrollController.hasClients) return;
+
+    final position = _scrollController.position;
+    if (position.pixels >= position.maxScrollExtent - 220) {
+      if (_searchQuery != null) {
+        unawaited(_loadMoreSearchResults());
+      } else {
+        unawaited(_loadMorePatients());
+      }
+    }
+  }
+
+  Future<void> _loadMorePatients() async {
+    if (_isLoadingMore || !_hasMoreRemote) return;
+    if (_searchQuery != null) return;
+
+    if (mounted) {
+      setState(() => _isLoadingMore = true);
+    }
+
+    try {
+      final result = await _remoteRepository.getPatients(
+        page: _nextPage,
+        limit: _pageSize,
+      );
+
+      if (result['success'] == true) {
+        final patients = result['patients'] as List<Patient>;
+        if (patients.isNotEmpty) {
+          await _localRepository.upsertPatients(patients);
+        }
+
+        final pagination = result['pagination'];
+        final hasMore =
+            (pagination is Map && pagination['has_next'] == true) ||
+            patients.length == _pageSize;
+
+        if (mounted) {
+          setState(() {
+            _hasMoreRemote = hasMore;
+            if (hasMore) _nextPage += 1;
+          });
+        }
+      }
+    } catch (_) {
+      // Keep silent: user already has cached data and can continue browsing.
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingMore = false);
+      }
+    }
   }
 
   Future<void> _confirmLogout() async {
@@ -90,20 +172,119 @@ class _PatientsListScreenState extends State<PatientsListScreen> {
   }
 
   void _onSearch(String query) {
+    _searchDebounce?.cancel();
+    final normalized = query.trim();
+
     setState(() {
-      _searchQuery = query.trim().isEmpty ? null : query.trim();
+      _searchQuery = normalized.isEmpty ? null : normalized;
+      if (_searchQuery == null) {
+        _remoteSearchResults = null;
+        _isSearchingRemote = false;
+        _isLoadingMoreSearch = false;
+        _hasMoreSearchResults = false;
+        _nextSearchPage = 2;
+      }
     });
+
+    if (_searchQuery != null) {
+      setState(() {
+        _remoteSearchResults = null;
+        _isLoadingMoreSearch = false;
+        _hasMoreSearchResults = false;
+        _nextSearchPage = 2;
+      });
+      _searchDebounce = Timer(const Duration(milliseconds: 450), () {
+        unawaited(_searchFromServer(_searchQuery!, page: 1, reset: true));
+      });
+    }
+  }
+
+  Future<void> _searchFromServer(
+    String query, {
+    required int page,
+    required bool reset,
+  }) async {
+    if (!mounted) return;
+    setState(() {
+      _isSearchingRemote = reset;
+      _isLoadingMoreSearch = !reset;
+    });
+
+    try {
+      final result = await _remoteRepository.getPatients(
+        query: query,
+        page: page,
+        limit: _pageSize,
+      );
+
+      if (!mounted || _searchQuery != query) return;
+
+      if (result['success'] == true) {
+        var patients = (result['patients'] as List<Patient>);
+        if (patients.isNotEmpty) {
+          await _localRepository.upsertPatients(patients);
+        }
+
+        if (widget.showIncompleteOnly) {
+          patients = patients.where((p) => p.progressPercentage < 100).toList();
+        }
+
+        final pagination = result['pagination'];
+        final hasMore =
+            (pagination is Map && pagination['has_next'] == true) ||
+            patients.length == _pageSize;
+
+        setState(() {
+          if (reset) {
+            _remoteSearchResults = patients;
+          } else {
+            final current = _remoteSearchResults ?? <Patient>[];
+            final byId = {for (final patient in current) patient.id: patient};
+            for (final patient in patients) {
+              byId[patient.id] = patient;
+            }
+            _remoteSearchResults = byId.values.toList();
+          }
+          _hasMoreSearchResults = hasMore;
+          _nextSearchPage = hasMore ? page + 1 : page;
+        });
+      } else {
+        setState(() => _remoteSearchResults = null);
+      }
+    } catch (_) {
+      if (!mounted || _searchQuery != query) return;
+      setState(() => _remoteSearchResults = null);
+    } finally {
+      if (mounted && _searchQuery == query) {
+        setState(() {
+          _isSearchingRemote = false;
+          _isLoadingMoreSearch = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadMoreSearchResults() async {
+    final query = _searchQuery;
+    if (query == null || query.isEmpty) return;
+    if (_isLoadingMoreSearch || !_hasMoreSearchResults) return;
+    await _searchFromServer(query, page: _nextSearchPage, reset: false);
   }
 
   Future<void> _handleRefresh() async {
     final synced = await _syncService.syncNow();
     if (!synced && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('لا يوجد اتصال بالإنترنت'),
-          backgroundColor: AppTheme.errorRed,
-        ),
-      );
+      final hasInternet = await NetworkChecker.hasInternet();
+      if (!mounted) return;
+
+      if (!hasInternet) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('لا يوجد اتصال بالإنترنت'),
+            backgroundColor: AppTheme.errorRed,
+          ),
+        );
+      }
     }
   }
 
@@ -236,15 +417,24 @@ class _PatientsListScreenState extends State<PatientsListScreen> {
                     hintText: 'ابحث عن مريض...',
                     hintStyle: TextStyle(color: Colors.grey.shade500),
                     prefixIcon: Icon(Icons.search_rounded, color: Colors.grey.shade600),
-                    suffixIcon: _searchController.text.isNotEmpty
-                        ? IconButton(
-                            icon: Icon(Icons.clear_rounded, color: Colors.grey.shade600),
-                            onPressed: () {
-                              _searchController.clear();
-                              _onSearch('');
-                            },
+                    suffixIcon: _isSearchingRemote
+                        ? const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
                           )
-                        : null,
+                        : _searchController.text.isNotEmpty
+                            ? IconButton(
+                                icon: Icon(Icons.clear_rounded, color: Colors.grey.shade600),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  _onSearch('');
+                                },
+                              )
+                            : null,
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.symmetric(vertical: 14),
                   ),
@@ -257,17 +447,21 @@ class _PatientsListScreenState extends State<PatientsListScreen> {
               child: ValueListenableBuilder<Box<Patient>>(
                 valueListenable: _localRepository.listenable,
                 builder: (context, box, _) {
-                  final patients = _localRepository.getPatients(
+                  final localPatients = _localRepository.getPatients(
                     query: _searchQuery,
                     where: widget.showIncompleteOnly
                         ? (p) => p.progressPercentage < 100
                         : null,
                   );
+                  final patients = (_searchQuery != null &&
+                          _remoteSearchResults != null)
+                      ? _remoteSearchResults!
+                      : localPatients;
 
                   return ValueListenableBuilder<bool>(
                     valueListenable: _syncService.isSyncing,
                     builder: (context, syncing, __) {
-                      if (patients.isEmpty && syncing) {
+                      if (patients.isEmpty && syncing && _searchQuery == null) {
                         return const Center(child: CircularProgressIndicator());
                       }
 
@@ -298,9 +492,27 @@ class _PatientsListScreenState extends State<PatientsListScreen> {
                       return RefreshIndicator(
                         onRefresh: _handleRefresh,
                         child: ListView.builder(
+                          controller: _scrollController,
                           padding: const EdgeInsets.all(16),
-                          itemCount: patients.length,
+                          itemCount: patients.length +
+                              (((_searchQuery == null && _isLoadingMore) ||
+                                      (_searchQuery != null && _isLoadingMoreSearch))
+                                  ? 1
+                                  : 0),
                           itemBuilder: (context, index) {
+                            if (index >= patients.length) {
+                              return const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 12),
+                                child: Center(
+                                  child: SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(strokeWidth: 2.2),
+                                  ),
+                                ),
+                              );
+                            }
+
                             final patient = patients[index];
                             return _PatientCard(
                               patient: patient,

@@ -40,6 +40,7 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> {
   int _selectedPhase = 1; // 1=قبل, 2=أثناء, 3=بعد, 4=المعالجة
   bool _isAdmin = false;
   late final ValueListenable<Box<Patient>> _patientsListenable;
+  bool _isFetchingMissingPatient = false;
 
   Future<void> _persistLocalPatient(Patient updated) async {
     setState(() {
@@ -65,7 +66,31 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> {
     _patientsListenable = _localRepository.listenable;
     _patientsListenable.addListener(_onPatientsChanged);
     _onPatientsChanged();
+    unawaited(_ensurePatientDataLoaded());
     _loadUserRole();
+  }
+
+  Future<void> _ensurePatientDataLoaded() async {
+    if (_isFetchingMissingPatient) return;
+    if (_patient != null) {
+      // Refresh silently in background to ensure opened profile is up to date.
+      final refreshed = await _remoteRepository.getPatient(widget.patientId);
+      if (refreshed['success'] == true) {
+        await _localRepository.upsertPatients([refreshed['patient'] as Patient]);
+      }
+      return;
+    }
+
+    _isFetchingMissingPatient = true;
+    final result = await _remoteRepository.getPatient(widget.patientId);
+    _isFetchingMissingPatient = false;
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      await _localRepository.upsertPatients([result['patient'] as Patient]);
+    } else {
+      setState(() => _isLoading = false);
+    }
   }
 
   void _onPatientsChanged() {

@@ -122,6 +122,33 @@ class PatientRemoteRepository {
     throw Exception(result['message'] ?? 'تعذر تحميل البيانات');
   }
 
+  Future<Map<String, dynamic>> fetchPatientsPage({
+    int page = 1,
+    int limit = 30,
+    String? query,
+  }) async {
+    final result = await getPatients(
+      query: query,
+      page: page,
+      limit: limit,
+    );
+
+    if (result['success'] != true) {
+      throw Exception(result['message'] ?? 'تعذر تحميل البيانات');
+    }
+
+    final patients = result['patients'] as List<Patient>;
+    final pagination = result['pagination'];
+    final hasMore = (pagination is Map && pagination['has_next'] == true) ||
+        patients.length == limit;
+
+    return {
+      'patients': patients,
+      'hasMore': hasMore,
+      'page': page,
+    };
+  }
+
   Future<List<Patient>> fetchUpdates(DateTime since) async {
     if (!await NetworkChecker.hasInternet()) {
       throw Exception('لا يوجد اتصال بالإنترنت');

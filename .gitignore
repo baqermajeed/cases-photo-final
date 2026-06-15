@@ -9,10 +9,12 @@ backend/.venv/
 backend/__pycache__/
 backend/**/*.pyc
 backend/.env
+backend/app/.env
 
 ## Flutter / Dart frontend
 frontend/.dart_tool/
 frontend/build/
+frontend/android/build/
 frontend/.packages
 frontend/.flutter-plugins
 frontend/.flutter-plugins-dependencies

@@ -86,12 +86,17 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _checkAuth() async {
-    await Future.delayed(const Duration(seconds: 1));
-    
-    final isLoggedIn = await _authService.isLoggedIn();
-    
+    bool isLoggedIn = false;
+    try {
+      isLoggedIn = await _authService
+          .isLoggedIn()
+          .timeout(const Duration(seconds: 4), onTimeout: () => false);
+    } catch (_) {
+      isLoggedIn = false;
+    }
+
     if (!mounted) return;
-    
+
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => isLoggedIn

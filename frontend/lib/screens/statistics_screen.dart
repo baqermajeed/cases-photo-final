@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import '../core/theme/app_theme.dart';
-import '../models/patient.dart';
-import '../repositories/local/patient_local_repository.dart';
-import '../services/sync_service.dart';
+import '../repositories/remote/patient_remote_repository.dart';
 import 'completed_patients_screen.dart';
 import 'all_patients_screen.dart';
 import 'incomplete_patients_screen.dart';
@@ -18,43 +15,52 @@ class StatisticsScreen extends StatefulWidget {
 }
 
 class _StatisticsScreenState extends State<StatisticsScreen> {
-  final _localRepository = PatientLocalRepository.instance;
-  final _syncService = SyncService.instance;
+  final _remoteRepository = PatientRemoteRepository();
+  Map<String, dynamic>? _stats;
+  bool _isLoadingStats = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStatistics();
+  }
+
+  Future<void> _loadStatistics() async {
+    if (mounted) {
+      setState(() => _isLoadingStats = true);
+    }
+
+    final result = await _remoteRepository.getStatistics();
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      setState(() {
+        _stats = Map<String, dynamic>.from(result['data'] as Map);
+        _isLoadingStats = false;
+      });
+      return;
+    }
+
+    setState(() => _isLoadingStats = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(result['message']?.toString() ?? 'فشل جلب الإحصائيات'),
+        backgroundColor: AppTheme.errorRed,
+      ),
+    );
+  }
 
   Future<void> _handleRefresh() async {
-    final synced = await _syncService.syncNow();
-    if (!synced && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('لا يوجد اتصال بالإنترنت'),
-          backgroundColor: AppTheme.errorRed,
-        ),
-      );
-    }
+    await _loadStatistics();
   }
 
-  List<int> _phaseSteps(int phase) {
-    switch (phase) {
-      case 1:
-        return [1, 2, 3, 4, 5, 6, 7, 8];
-      case 2:
-        return [9, 10, 11, 12, 13, 14];
-      case 3:
-        return [24];
-      case 4:
-      default:
-        return [15, 16, 17, 18, 19, 20, 21, 22, 23, 25];
-    }
-  }
-
-  bool _isPhaseCompleted(Patient patient, int phase) {
-    final required = _phaseSteps(phase);
-    final stepMap = {for (final step in patient.steps) step.stepNumber: step};
-    for (final step in required) {
-      final current = stepMap[step];
-      if (current == null || !current.isDone) return false;
-    }
-    return true;
+  int _phaseCount(int phase) {
+    final phaseCompleted = _stats?['phase_completed'];
+    if (phaseCompleted is! Map) return 0;
+    final value = phaseCompleted[phase] ?? phaseCompleted['$phase'];
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return 0;
   }
 
   @override
@@ -78,35 +84,21 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             onPressed: () => Navigator.pop(context),
           ),
         ),
-        body: ValueListenableBuilder<Box<Patient>>(
-          valueListenable: _localRepository.listenable,
-          builder: (context, box, _) {
-            final patients = _localRepository.getPatients();
-            final totalPatients = patients.length;
-            int completedPatients = 0;
-            int zeroStepPatients = 0;
-            final phaseCounts = {1: 0, 2: 0, 3: 0, 4: 0};
-
-            for (final patient in patients) {
-              final allDone = patient.steps.isNotEmpty &&
-                  patient.steps.every((s) => s.isDone);
-              if (allDone) {
-                completedPatients++;
-              }
-              if (patient.completedStepsCount == 0) {
-                zeroStepPatients++;
-              }
-              for (var phase = 1; phase <= 4; phase++) {
-                if (_isPhaseCompleted(patient, phase)) {
-                  phaseCounts[phase] = phaseCounts[phase]! + 1;
-                }
-              }
+        body: Builder(
+          builder: (context) {
+            if (_isLoadingStats && _stats == null) {
+              return const Center(child: CircularProgressIndicator());
             }
 
-            final incompletePatients = totalPatients - completedPatients;
-            final completionRate = totalPatients > 0
-                ? ((completedPatients / totalPatients) * 100).toStringAsFixed(1)
-                : '0.0';
+            final totalPatients = (_stats?['total_patients'] as num?)?.toInt() ?? 0;
+            final completedPatients =
+                (_stats?['completed_patients'] as num?)?.toInt() ?? 0;
+            final incompletePatients =
+                (_stats?['incomplete_patients'] as num?)?.toInt() ?? 0;
+            final zeroStepPatients =
+                (_stats?['zero_step_patients'] as num?)?.toInt() ?? 0;
+            final completionRate = ((_stats?['completion_rate'] as num?) ?? 0)
+                .toStringAsFixed(1);
 
             return RefreshIndicator(
               onRefresh: _handleRefresh,
@@ -271,7 +263,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                           _phaseCard(
                             icon: Icons.filter_1_rounded,
                             title: 'قبل العملية',
-                            value: phaseCounts[1]!.toString(),
+                            value: _phaseCount(1).toString(),
                             color: const Color(0xFF3B82F6),
                             onTap: () {
                               Navigator.push(
@@ -285,7 +277,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                           _phaseCard(
                             icon: Icons.filter_2_rounded,
                             title: 'أثناء العملية',
-                            value: phaseCounts[2]!.toString(),
+                            value: _phaseCount(2).toString(),
                             color: const Color(0xFFF59E0B),
                             onTap: () {
                               Navigator.push(
@@ -299,7 +291,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                           _phaseCard(
                             icon: Icons.filter_3_rounded,
                             title: 'المعالجة',
-                            value: phaseCounts[3]!.toString(),
+                            value: _phaseCount(3).toString(),
                             color: const Color(0xFF8B5CF6),
                             onTap: () {
                               Navigator.push(
@@ -313,7 +305,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                           _phaseCard(
                             icon: Icons.filter_4_rounded,
                             title: 'بعد العملية',
-                            value: phaseCounts[4]!.toString(),
+                            value: _phaseCount(4).toString(),
                             color: const Color(0xFF10B981),
                             onTap: () {
                               Navigator.push(
