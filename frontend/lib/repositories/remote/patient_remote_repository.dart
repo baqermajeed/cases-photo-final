@@ -43,10 +43,6 @@ class PatientRemoteRepository {
     int page = 1,
     int limit = 1000,
   }) async {
-    if (!await NetworkChecker.hasInternet()) {
-      return {'success': false, 'message': 'لا يوجد اتصال بالإنترنت'};
-    }
-
     try {
       final token = await authService.getToken();
       if (token == null) {
@@ -150,10 +146,6 @@ class PatientRemoteRepository {
   }
 
   Future<List<Patient>> fetchUpdates(DateTime since) async {
-    if (!await NetworkChecker.hasInternet()) {
-      throw Exception('لا يوجد اتصال بالإنترنت');
-    }
-
     try {
       final token = await authService.getToken();
       if (token == null) {
@@ -182,8 +174,6 @@ class PatientRemoteRepository {
   }
 
   Future<Map<String, dynamic>> getPatient(String id) async {
-    if (!await NetworkChecker.hasInternet()) return {'success': false};
-
     try {
       final token = await authService.getToken();
       if (token == null) return {'success': false};
@@ -437,10 +427,6 @@ class PatientRemoteRepository {
   }
 
   Future<Map<String, dynamic>> getStatistics() async {
-    if (!await NetworkChecker.hasInternet()) {
-      return {'success': false, 'message': 'لا يوجد اتصال بالإنترنت'};
-    }
-
     try {
       final token = await authService.getToken();
 

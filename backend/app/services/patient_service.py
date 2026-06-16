@@ -5,6 +5,13 @@ from fastapi import HTTPException
 from ..models.patient import Patient, Step, Image
 from ..schemas.patient_schema import PatientCreate
 
+ACTIVE_PATIENT_FILTER = {
+    "$or": [
+        {"is_deleted": False},
+        {"is_deleted": {"$exists": False}},
+    ]
+}
+
 
 STEP_TITLES: List[str] = [
     "صورة وجه كامل للمريض",
@@ -70,7 +77,7 @@ async def create_patient(data: PatientCreate) -> Patient:
 
 
 async def list_patients() -> List[Patient]:
-    return await Patient.find({"is_deleted": False}).to_list()
+    return await Patient.find(ACTIVE_PATIENT_FILTER).to_list()
 
 
 def _phase_steps(phase: int) -> List[int]:
@@ -113,13 +120,13 @@ async def search_patients(q: Optional[str], page: int, limit: int) -> dict:
                         {"phone": {"$regex": q, "$options": "i"}},
                     ]
                 },
-                {"is_deleted": False},
+                ACTIVE_PATIENT_FILTER,
             ]
         }
         cursor = Patient.find(filter_query)
         total = await Patient.find(filter_query).count()
     else:
-        filter_query = {"is_deleted": False}
+        filter_query = ACTIVE_PATIENT_FILTER
         cursor = Patient.find(filter_query)
         total = await Patient.find(filter_query).count()
 
@@ -204,7 +211,7 @@ async def delete_image_from_step(patient_id: str, step_number: int, image_id: st
 
 async def get_statistics() -> dict:
     """جلب إحصائيات المرضى"""
-    all_patients = await Patient.find({"is_deleted": False}).to_list()
+    all_patients = await Patient.find(ACTIVE_PATIENT_FILTER).to_list()
     total = len(all_patients)
 
     completed_total = 0
@@ -242,7 +249,7 @@ async def get_statistics() -> dict:
 
 async def get_completed_patients() -> List[Patient]:
     """جلب فقط المرضى المكتملين"""
-    all_patients = await Patient.find({"is_deleted": False}).to_list()
+    all_patients = await Patient.find(ACTIVE_PATIENT_FILTER).to_list()
     completed_patients = []
     
     for patient in all_patients:
@@ -266,7 +273,7 @@ async def delete_patient(patient_id: str) -> None:
 
 async def get_patients_completed_phase(phase: int) -> List[Patient]:
     """جلب المرضى الذين أتمّوا المرحلة المحددة (كل خطوات المرحلة مكتملة)"""
-    all_patients = await Patient.find({"is_deleted": False}).to_list()
+    all_patients = await Patient.find(ACTIVE_PATIENT_FILTER).to_list()
     result: List[Patient] = []
     for patient in all_patients:
         if _is_phase_completed(patient, phase):
@@ -276,7 +283,7 @@ async def get_patients_completed_phase(phase: int) -> List[Patient]:
 
 async def get_zero_step_patients() -> List[Patient]:
     """المرضى الذين لم يكملوا أي خطوة"""
-    all_patients = await Patient.find({"is_deleted": False}).to_list()
+    all_patients = await Patient.find(ACTIVE_PATIENT_FILTER).to_list()
     return [p for p in all_patients if _has_zero_steps_done(p)]
 
 

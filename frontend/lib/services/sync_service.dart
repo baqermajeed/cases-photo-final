@@ -52,10 +52,6 @@ class SyncService {
       return;
     }
 
-    if (!await NetworkChecker.hasInternet()) {
-      throw Exception('no-internet');
-    }
-
     final firstPage = await _remoteRepository.fetchPatientsPage(
       page: 1,
       limit: _initialPageSize,
@@ -67,7 +63,6 @@ class SyncService {
 
   Future<bool> syncNow() async {
     if (isSyncing.value) return false;
-    if (!await NetworkChecker.hasInternet()) return false;
 
     isSyncing.value = true;
     try {
