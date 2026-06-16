@@ -76,7 +76,9 @@ class PatientLocalRepository {
       return true;
     }).toList();
 
-    patients.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    // Stable ordering by creation/registration time:
+    // latest added patients first, without reordering on edits/uploads.
+    patients.sort((a, b) => b.registrationDate.compareTo(a.registrationDate));
     return patients;
   }
 

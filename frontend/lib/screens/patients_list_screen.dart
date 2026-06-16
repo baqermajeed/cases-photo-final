@@ -221,9 +221,6 @@ class _PatientsListScreenState extends State<PatientsListScreen> {
 
       if (result['success'] == true) {
         var patients = (result['patients'] as List<Patient>);
-        if (patients.isNotEmpty) {
-          await _localRepository.upsertPatients(patients);
-        }
 
         if (widget.showIncompleteOnly) {
           patients = patients.where((p) => p.progressPercentage < 100).toList();

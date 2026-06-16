@@ -123,11 +123,11 @@ async def search_patients(q: Optional[str], page: int, limit: int) -> dict:
                 ACTIVE_PATIENT_FILTER,
             ]
         }
-        cursor = Patient.find(filter_query)
+        cursor = Patient.find(filter_query).sort([("registration_date", -1)])
         total = await Patient.find(filter_query).count()
     else:
         filter_query = ACTIVE_PATIENT_FILTER
-        cursor = Patient.find(filter_query)
+        cursor = Patient.find(filter_query).sort([("registration_date", -1)])
         total = await Patient.find(filter_query).count()
 
     patients = await cursor.skip(skip).limit(limit).to_list()

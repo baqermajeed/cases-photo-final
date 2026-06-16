@@ -141,7 +141,7 @@ class Patient {
       phone: json['phone'] as String,
       address: json['address'] as String,
       note: json['note'] as String?,
-      registrationDate: _parseDate(registrationRaw),
+      registrationDate: _parseDate(registrationRaw ?? updatedRaw),
       updatedAt: _parseDate(updatedRaw ?? registrationRaw),
       isDeleted: json['is_deleted'] as bool? ?? false,
       steps: (json['steps'] as List<dynamic>)
