@@ -30,27 +30,40 @@ async def get_stats():
 
 
 @router.get("/filter/completed")
-async def get_completed_patients():
-    patients = await patient_service.get_completed_patients()
-    return {"success": True, "data": patients}
+async def get_completed_patients(
+    page: int = Query(1, ge=1),
+    limit: int = Query(30, ge=1, le=100),
+):
+    result = await patient_service.get_completed_patients(page=page, limit=limit)
+    return {"success": True, **result}
 
 
 @router.get("/filter/incomplete")
-async def get_incomplete_patients():
-    patients = await patient_service.get_incomplete_patients()
-    return {"success": True, "data": patients}
+async def get_incomplete_patients(
+    page: int = Query(1, ge=1),
+    limit: int = Query(30, ge=1, le=100),
+):
+    result = await patient_service.get_incomplete_patients(page=page, limit=limit)
+    return {"success": True, **result}
 
 
 @router.get("/filter/completed/phase/{phase}")
-async def get_completed_by_phase(phase: int = Path(..., ge=1, le=4)):
-    patients = await patient_service.get_patients_completed_phase(phase)
-    return {"success": True, "data": patients}
+async def get_completed_by_phase(
+    phase: int = Path(..., ge=1, le=4),
+    page: int = Query(1, ge=1),
+    limit: int = Query(30, ge=1, le=100),
+):
+    result = await patient_service.get_patients_completed_phase(phase, page=page, limit=limit)
+    return {"success": True, **result}
 
 
 @router.get("/filter/zero-step")
-async def get_zero_step_patients():
-    patients = await patient_service.get_zero_step_patients()
-    return {"success": True, "data": patients}
+async def get_zero_step_patients(
+    page: int = Query(1, ge=1),
+    limit: int = Query(30, ge=1, le=100),
+):
+    result = await patient_service.get_zero_step_patients(page=page, limit=limit)
+    return {"success": True, **result}
 
 
 @router.get("/updates")

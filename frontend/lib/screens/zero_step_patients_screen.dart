@@ -3,8 +3,8 @@ import 'package:intl/intl.dart' as intl;
 import 'package:cached_network_image/cached_network_image.dart';
 import '../core/theme/app_theme.dart';
 import '../models/patient.dart';
-import '../repositories/local/patient_local_repository.dart';
 import '../repositories/remote/patient_remote_repository.dart';
+import '../widgets/statistics_paginated_list.dart';
 import 'patient_detail_screen.dart';
 
 class ZeroStepPatientsScreen extends StatefulWidget {
@@ -15,96 +15,7 @@ class ZeroStepPatientsScreen extends StatefulWidget {
 }
 
 class _ZeroStepPatientsScreenState extends State<ZeroStepPatientsScreen> {
-  final _localRepository = PatientLocalRepository.instance;
   final _remoteRepository = PatientRemoteRepository();
-
-  List<Patient> _patients = [];
-  bool _isLoading = true;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPatients();
-  }
-
-  Future<void> _loadPatients() async {
-    if (mounted) {
-      setState(() {
-        _isLoading = true;
-        _error = null;
-      });
-    }
-
-    final result = await _remoteRepository.getZeroStepPatients();
-    if (!mounted) return;
-
-    if (result['success'] == true) {
-      final patients = result['patients'] as List<Patient>;
-      await _localRepository.upsertPatients(patients);
-      setState(() {
-        _patients = patients;
-        _isLoading = false;
-      });
-      return;
-    }
-
-    setState(() {
-      _error = result['message']?.toString() ?? 'فشل جلب المرضى';
-      _isLoading = false;
-    });
-  }
-
-  Widget _buildBody() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(_error!, textAlign: TextAlign.center),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _loadPatients,
-                child: const Text('إعادة المحاولة'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (_patients.isEmpty) {
-      return const Center(child: Text('لا يوجد مرضى بدون خطوات مكتملة'));
-    }
-
-    return RefreshIndicator(
-      onRefresh: _loadPatients,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _patients.length,
-        itemBuilder: (context, index) {
-          final patient = _patients[index];
-          return _Row(
-            patient: patient,
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => PatientDetailScreen(patientId: patient.id),
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -118,16 +29,31 @@ class _ZeroStepPatientsScreenState extends State<ZeroStepPatientsScreen> {
             onPressed: () => Navigator.pop(context),
           ),
         ),
-        body: _buildBody(),
+        body: StatisticsPaginatedPatientList(
+          onFetchPage: ({required page, required limit}) =>
+              _remoteRepository.getZeroStepPatients(page: page, limit: limit),
+          emptyMessage: 'لا يوجد مرضى بدون خطوات مكتملة',
+          itemBuilder: (context, patient) => _PatientRow(
+            patient: patient,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PatientDetailScreen(patientId: patient.id),
+                ),
+              );
+            },
+          ),
+        ),
       ),
     );
   }
 }
 
-class _Row extends StatelessWidget {
+class _PatientRow extends StatelessWidget {
   final Patient patient;
   final VoidCallback onTap;
-  const _Row({required this.patient, required this.onTap});
+  const _PatientRow({required this.patient, required this.onTap});
 
   @override
   Widget build(BuildContext context) {

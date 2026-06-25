@@ -421,24 +421,43 @@ class PatientRemoteRepository {
     }
   }
 
-  Future<Map<String, dynamic>> getCompletedPatients() async {
+  Future<Map<String, dynamic>> getCompletedPatients({
+    int page = 1,
+    int limit = 30,
+  }) async {
     return _fetchFilteredPatients(
       '${ApiConstants.baseUrl}${ApiConstants.patients}/filter/completed',
       'فشل جلب المرضى المكتملين',
+      page: page,
+      limit: limit,
     );
   }
 
-  Future<Map<String, dynamic>> getIncompletePatients() async {
+  Future<Map<String, dynamic>> getIncompletePatients({
+    int page = 1,
+    int limit = 30,
+  }) async {
     return _fetchFilteredPatients(
       '${ApiConstants.baseUrl}${ApiConstants.patients}/filter/incomplete',
       'فشل جلب المرضى غير المكتملين',
+      page: page,
+      limit: limit,
     );
+  }
+
+  Future<Map<String, dynamic>> getStatisticsAllPatients({
+    int page = 1,
+    int limit = 30,
+  }) async {
+    return getPatients(page: page, limit: limit);
   }
 
   Future<Map<String, dynamic>> _fetchFilteredPatients(
     String url,
-    String failureMessage,
-  ) async {
+    String failureMessage, {
+    int page = 1,
+    int limit = 30,
+  }) async {
     if (!await NetworkChecker.hasInternet()) {
       return {'success': false, 'message': 'لا يوجد اتصال بالإنترنت'};
     }
@@ -449,8 +468,11 @@ class PatientRemoteRepository {
         return {'success': false, 'message': 'غير مسجل الدخول'};
       }
 
+      final separator = url.contains('?') ? '&' : '?';
+      final paginatedUrl = '$url${separator}page=$page&limit=$limit';
+
       final response = await DioClient.dio.get(
-        url,
+        paginatedUrl,
         options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
 
@@ -458,7 +480,11 @@ class PatientRemoteRepository {
           .map((e) => Patient.fromJson(e))
           .toList();
 
-      return {'success': true, 'patients': patients};
+      return {
+        'success': true,
+        'patients': patients,
+        'pagination': response.data['pagination'],
+      };
     } on DioException catch (e) {
       return _handleDioError(e);
     } catch (_) {
@@ -515,17 +541,28 @@ class PatientRemoteRepository {
     }
   }
 
-  Future<Map<String, dynamic>> getCompletedByPhase(int phase) async {
+  Future<Map<String, dynamic>> getCompletedByPhase(
+    int phase, {
+    int page = 1,
+    int limit = 30,
+  }) async {
     return _fetchFilteredPatients(
       '${ApiConstants.baseUrl}/patients/filter/completed/phase/$phase',
       'فشل جلب المرضى للمراحل',
+      page: page,
+      limit: limit,
     );
   }
 
-  Future<Map<String, dynamic>> getZeroStepPatients() async {
+  Future<Map<String, dynamic>> getZeroStepPatients({
+    int page = 1,
+    int limit = 30,
+  }) async {
     return _fetchFilteredPatients(
       '${ApiConstants.baseUrl}/patients/filter/zero-step',
       'فشل جلب المرضى (لا خطوات مكتملة)',
+      page: page,
+      limit: limit,
     );
   }
 }

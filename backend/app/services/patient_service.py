@@ -109,6 +109,26 @@ def _has_zero_steps_done(patient: Patient) -> bool:
     return not any(s.is_done for s in patient.steps)
 
 
+def _build_pagination(total: int, page: int, limit: int) -> dict:
+    pages = (total + limit - 1) // limit if total else 0
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "pages": pages,
+        "has_next": page < pages if pages else False,
+    }
+
+
+def _paginate_list(items: List[Patient], page: int, limit: int) -> dict:
+    total = len(items)
+    skip = (page - 1) * limit
+    return {
+        "data": items[skip : skip + limit],
+        "pagination": _build_pagination(total, page, limit),
+    }
+
+
 async def search_patients(q: Optional[str], page: int, limit: int) -> dict:
     skip = (page - 1) * limit
     if q:
@@ -247,22 +267,18 @@ async def get_statistics() -> dict:
     }
 
 
-async def get_completed_patients() -> List[Patient]:
-    """جلب فقط المرضى المكتملين"""
-    all_patients = await Patient.find(ACTIVE_PATIENT_FILTER).to_list()
-    completed_patients = []
-    
-    for patient in all_patients:
-        if all(step.is_done for step in patient.steps):
-            completed_patients.append(patient)
-    
-    return completed_patients
+async def get_completed_patients(page: int, limit: int) -> dict:
+    """جلب المرضى المكتملين مع pagination"""
+    all_patients = await Patient.find(ACTIVE_PATIENT_FILTER).sort([("registration_date", -1)]).to_list()
+    completed = [p for p in all_patients if all(step.is_done for step in p.steps)]
+    return _paginate_list(completed, page, limit)
 
 
-async def get_incomplete_patients() -> List[Patient]:
-    """جلب المرضى غير المكتملين"""
-    all_patients = await Patient.find(ACTIVE_PATIENT_FILTER).to_list()
-    return [p for p in all_patients if not all(step.is_done for step in p.steps)]
+async def get_incomplete_patients(page: int, limit: int) -> dict:
+    """جلب المرضى غير المكتملين مع pagination"""
+    all_patients = await Patient.find(ACTIVE_PATIENT_FILTER).sort([("registration_date", -1)]).to_list()
+    incomplete = [p for p in all_patients if not all(step.is_done for step in p.steps)]
+    return _paginate_list(incomplete, page, limit)
 
 
 async def delete_patient(patient_id: str) -> None:
@@ -277,20 +293,18 @@ async def delete_patient(patient_id: str) -> None:
 
 # ========== Phase/Zero-step filters ==========
 
-async def get_patients_completed_phase(phase: int) -> List[Patient]:
-    """جلب المرضى الذين أتمّوا المرحلة المحددة (كل خطوات المرحلة مكتملة)"""
-    all_patients = await Patient.find(ACTIVE_PATIENT_FILTER).to_list()
-    result: List[Patient] = []
-    for patient in all_patients:
-        if _is_phase_completed(patient, phase):
-            result.append(patient)
-    return result
+async def get_patients_completed_phase(phase: int, page: int, limit: int) -> dict:
+    """جلب المرضى الذين أتمّوا المرحلة المحددة مع pagination"""
+    all_patients = await Patient.find(ACTIVE_PATIENT_FILTER).sort([("registration_date", -1)]).to_list()
+    result = [p for p in all_patients if _is_phase_completed(p, phase)]
+    return _paginate_list(result, page, limit)
 
 
-async def get_zero_step_patients() -> List[Patient]:
-    """المرضى الذين لم يكملوا أي خطوة"""
-    all_patients = await Patient.find(ACTIVE_PATIENT_FILTER).to_list()
-    return [p for p in all_patients if _has_zero_steps_done(p)]
+async def get_zero_step_patients(page: int, limit: int) -> dict:
+    """المرضى الذين لم يكملوا أي خطوة مع pagination"""
+    all_patients = await Patient.find(ACTIVE_PATIENT_FILTER).sort([("registration_date", -1)]).to_list()
+    zero_step = [p for p in all_patients if _has_zero_steps_done(p)]
+    return _paginate_list(zero_step, page, limit)
 
 
 async def get_patients_updates(since: datetime) -> List[Patient]:
