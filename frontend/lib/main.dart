@@ -7,6 +7,7 @@ import 'screens/login_screen.dart';
 import 'screens/patients_list_screen.dart';
 import 'services/auth_service.dart';
 import 'services/sync_service.dart';
+import 'services/upload_queue_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -14,6 +15,7 @@ Future<void> main() async {
   // Initialize intl for Arabic date formatting
   await initializeDateFormatting('ar');
   await SyncService.instance.initialize();
+  await UploadQueueService.instance.initialize();
   
   // Set system UI overlay style
   SystemChrome.setSystemUIOverlayStyle(

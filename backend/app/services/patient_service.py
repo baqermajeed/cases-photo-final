@@ -259,6 +259,12 @@ async def get_completed_patients() -> List[Patient]:
     return completed_patients
 
 
+async def get_incomplete_patients() -> List[Patient]:
+    """جلب المرضى غير المكتملين"""
+    all_patients = await Patient.find(ACTIVE_PATIENT_FILTER).to_list()
+    return [p for p in all_patients if not all(step.is_done for step in p.steps)]
+
+
 async def delete_patient(patient_id: str) -> None:
     """حذف مريض"""
     patient = await get_patient(patient_id)

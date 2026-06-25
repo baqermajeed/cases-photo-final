@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' as intl;
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import '../core/theme/app_theme.dart';
 import '../models/patient.dart';
 import '../repositories/local/patient_local_repository.dart';
-import '../services/sync_service.dart';
+import '../repositories/remote/patient_remote_repository.dart';
 import 'patient_detail_screen.dart';
 
 class PhaseCompletedPatientsScreen extends StatefulWidget {
@@ -18,7 +17,11 @@ class PhaseCompletedPatientsScreen extends StatefulWidget {
 
 class _PhaseCompletedPatientsScreenState extends State<PhaseCompletedPatientsScreen> {
   final _localRepository = PatientLocalRepository.instance;
-  final _syncService = SyncService.instance;
+  final _remoteRepository = PatientRemoteRepository();
+
+  List<Patient> _patients = [];
+  bool _isLoading = true;
+  String? _error;
 
   String get _title {
     switch (widget.phase) {
@@ -34,40 +37,88 @@ class _PhaseCompletedPatientsScreenState extends State<PhaseCompletedPatientsScr
     }
   }
 
-  Future<void> _handleRefresh() async {
-    final synced = await _syncService.syncNow();
-    if (!synced && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('لا يوجد اتصال بالإنترنت'),
-          backgroundColor: AppTheme.errorRed,
+  @override
+  void initState() {
+    super.initState();
+    _loadPatients();
+  }
+
+  Future<void> _loadPatients() async {
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    }
+
+    final result = await _remoteRepository.getCompletedByPhase(widget.phase);
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      final patients = result['patients'] as List<Patient>;
+      await _localRepository.upsertPatients(patients);
+      setState(() {
+        _patients = patients;
+        _isLoading = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _error = result['message']?.toString() ?? 'فشل جلب المرضى';
+      _isLoading = false;
+    });
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(_error!, textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _loadPatients,
+                child: const Text('إعادة المحاولة'),
+              ),
+            ],
+          ),
         ),
       );
     }
-  }
 
-  List<int> _phaseSteps(int phase) {
-    switch (phase) {
-      case 1:
-        return [1, 2, 3, 4, 5, 6, 7, 8];
-      case 2:
-        return [9, 10, 11, 12, 13, 14];
-      case 3:
-        return [24];
-      case 4:
-      default:
-        return [15, 16, 17, 18, 19, 20, 21, 22, 23, 25];
+    if (_patients.isEmpty) {
+      return const Center(child: Text('لا يوجد مرضى مكتملين لهذه المرحلة'));
     }
-  }
 
-  bool _isPhaseCompleted(Patient patient) {
-    final required = _phaseSteps(widget.phase);
-    final stepMap = {for (final step in patient.steps) step.stepNumber: step};
-    for (final stepNumber in required) {
-      final step = stepMap[stepNumber];
-      if (step == null || !step.isDone) return false;
-    }
-    return true;
+    return RefreshIndicator(
+      onRefresh: _loadPatients,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _patients.length,
+        itemBuilder: (context, index) {
+          final patient = _patients[index];
+          return _Row(
+            patient: patient,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PatientDetailScreen(patientId: patient.id),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -82,37 +133,7 @@ class _PhaseCompletedPatientsScreenState extends State<PhaseCompletedPatientsScr
             onPressed: () => Navigator.pop(context),
           ),
         ),
-        body: ValueListenableBuilder<Box<Patient>>(
-          valueListenable: _localRepository.listenable,
-          builder: (context, box, _) {
-            final patients =
-                _localRepository.getPatients(where: _isPhaseCompleted);
-            if (patients.isEmpty) {
-              return const Center(child: Text('لا يوجد مرضى مكتملين لهذه المرحلة'));
-            }
-            return RefreshIndicator(
-              onRefresh: _handleRefresh,
-              child: ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: patients.length,
-                itemBuilder: (context, index) {
-                  final patient = patients[index];
-                  return _Row(
-                    patient: patient,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => PatientDetailScreen(patientId: patient.id),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-            );
-          },
-        ),
+        body: _buildBody(),
       ),
     );
   }
@@ -199,5 +220,3 @@ class _Row extends StatelessWidget {
     );
   }
 }
-
-

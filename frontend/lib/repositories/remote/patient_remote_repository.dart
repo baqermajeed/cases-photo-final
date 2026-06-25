@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -279,6 +281,9 @@ class PatientRemoteRepository {
 
     try {
       final token = await authService.getToken();
+      if (token == null) {
+        return _sessionExpiredResult();
+      }
       final url =
           '${ApiConstants.baseUrl}${ApiConstants.uploadImages(patientId, stepNumber)}';
 
@@ -313,6 +318,53 @@ class PatientRemoteRepository {
       return _handleDioError(e);
     } catch (_) {
       return {'success': false, 'message': 'فشل رفع الصور، حاول مرة أخرى'};
+    }
+  }
+
+  Future<Map<String, dynamic>> uploadSingleImageFile({
+    required String patientId,
+    required int stepNumber,
+    required File imageFile,
+    void Function(int sent, int total)? onSendProgress,
+  }) async {
+    if (!await NetworkChecker.hasInternet()) {
+      return {'success': false, 'message': 'لا يوجد اتصال بالإنترنت'};
+    }
+
+    try {
+      final token = await authService.getToken();
+      final url =
+          '${ApiConstants.baseUrl}${ApiConstants.uploadImages(patientId, stepNumber)}';
+
+      final formData = FormData();
+      formData.files.add(
+        MapEntry(
+          'files',
+          await MultipartFile.fromFile(imageFile.path),
+        ),
+      );
+
+      final response = await DioClient.dio.post(
+        url,
+        data: formData,
+        onSendProgress: onSendProgress,
+        options: Options(
+          headers: {'Authorization': 'Bearer $token'},
+          sendTimeout: const Duration(seconds: 180),
+          receiveTimeout: const Duration(seconds: 180),
+          extra: {'retryable': false},
+        ),
+      );
+
+      return {
+        'success': true,
+        'message': response.data['message'] ?? 'تم رفع الصورة بنجاح',
+        'data': response.data['data'],
+      };
+    } on DioException catch (e) {
+      return _handleDioError(e);
+    } catch (_) {
+      return {'success': false, 'message': 'فشل رفع الصورة، حاول مرة أخرى'};
     }
   }
 
@@ -370,6 +422,23 @@ class PatientRemoteRepository {
   }
 
   Future<Map<String, dynamic>> getCompletedPatients() async {
+    return _fetchFilteredPatients(
+      '${ApiConstants.baseUrl}${ApiConstants.patients}/filter/completed',
+      'فشل جلب المرضى المكتملين',
+    );
+  }
+
+  Future<Map<String, dynamic>> getIncompletePatients() async {
+    return _fetchFilteredPatients(
+      '${ApiConstants.baseUrl}${ApiConstants.patients}/filter/incomplete',
+      'فشل جلب المرضى غير المكتملين',
+    );
+  }
+
+  Future<Map<String, dynamic>> _fetchFilteredPatients(
+    String url,
+    String failureMessage,
+  ) async {
     if (!await NetworkChecker.hasInternet()) {
       return {'success': false, 'message': 'لا يوجد اتصال بالإنترنت'};
     }
@@ -381,7 +450,7 @@ class PatientRemoteRepository {
       }
 
       final response = await DioClient.dio.get(
-        '${ApiConstants.baseUrl}${ApiConstants.patients}/filter/completed',
+        url,
         options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
 
@@ -393,7 +462,7 @@ class PatientRemoteRepository {
     } on DioException catch (e) {
       return _handleDioError(e);
     } catch (_) {
-      return {'success': false, 'message': 'فشل جلب المرضى المكتملين'};
+      return {'success': false, 'message': failureMessage};
     }
   }
 
@@ -447,59 +516,17 @@ class PatientRemoteRepository {
   }
 
   Future<Map<String, dynamic>> getCompletedByPhase(int phase) async {
-    if (!await NetworkChecker.hasInternet()) {
-      return {'success': false, 'message': 'لا يوجد اتصال بالإنترنت'};
-    }
-
-    try {
-      final token = await authService.getToken();
-      if (token == null) {
-        return {'success': false, 'message': 'غير مسجل الدخول'};
-      }
-
-      final response = await DioClient.dio.get(
-        '${ApiConstants.baseUrl}/patients/filter/completed/phase/$phase',
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
-      );
-
-      final patients = (response.data['data'] as List)
-          .map((e) => Patient.fromJson(e))
-          .toList();
-
-      return {'success': true, 'patients': patients};
-    } on DioException catch (e) {
-      return _handleDioError(e);
-    } catch (_) {
-      return {'success': false, 'message': 'فشل جلب المرضى للمراحل'};
-    }
+    return _fetchFilteredPatients(
+      '${ApiConstants.baseUrl}/patients/filter/completed/phase/$phase',
+      'فشل جلب المرضى للمراحل',
+    );
   }
 
   Future<Map<String, dynamic>> getZeroStepPatients() async {
-    if (!await NetworkChecker.hasInternet()) {
-      return {'success': false, 'message': 'لا يوجد اتصال بالإنترنت'};
-    }
-
-    try {
-      final token = await authService.getToken();
-      if (token == null) {
-        return {'success': false, 'message': 'غير مسجل الدخول'};
-      }
-
-      final response = await DioClient.dio.get(
-        '${ApiConstants.baseUrl}/patients/filter/zero-step',
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
-      );
-
-      final patients = (response.data['data'] as List)
-          .map((e) => Patient.fromJson(e))
-          .toList();
-
-      return {'success': true, 'patients': patients};
-    } on DioException catch (e) {
-      return _handleDioError(e);
-    } catch (_) {
-      return {'success': false, 'message': 'فشل جلب المرضى (لا خطوات مكتملة)'};
-    }
+    return _fetchFilteredPatients(
+      '${ApiConstants.baseUrl}/patients/filter/zero-step',
+      'فشل جلب المرضى (لا خطوات مكتملة)',
+    );
   }
 }
 

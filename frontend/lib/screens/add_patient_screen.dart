@@ -7,6 +7,7 @@ import '../models/patient.dart';
 import '../repositories/local/patient_local_repository.dart';
 import '../repositories/remote/patient_remote_repository.dart';
 import '../services/sync_service.dart';
+import '../services/upload_queue_service.dart';
 
 class AddPatientScreen extends StatefulWidget {
   const AddPatientScreen({super.key});
@@ -48,18 +49,28 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
 
     if (!mounted) return;
 
-    // If created successfully and avatar selected, upload it to step 1
-    bool avatarUploaded = false;
+    // If created successfully and avatar selected, queue it for step 1 upload.
+    bool avatarQueued = false;
     Patient? created = result['patient'] as Patient?;
 
     if (result['success'] == true && _avatar != null && created != null) {
       try {
-        final up = await _remoteRepository.uploadImages(
+        final stepTitle = created.steps
+            .where((step) => step.stepNumber == 1)
+            .map((step) => step.title)
+            .cast<String?>()
+            .firstWhere(
+              (title) => title != null && title.trim().isNotEmpty,
+              orElse: () => null,
+            );
+        final enqueued = await UploadQueueService.instance.enqueuePickedImages(
           patientId: created.id,
+          patientName: created.name,
           stepNumber: 1,
+          stepTitle: stepTitle ?? 'الخطوة 1',
           images: [_avatar!],
         );
-        avatarUploaded = up['success'] == true;
+        avatarQueued = enqueued > 0;
       } catch (_) {}
     }
 
@@ -68,8 +79,11 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
     if (result['success'] == true) {
       final msg = _avatar == null
           ? 'تم إضافة المريض بنجاح'
-          : (avatarUploaded ? 'تم إضافة المريض ورفع الصورة' : 'تم إضافة المريض (تعذر رفع الصورة)');
-      final color = (avatarUploaded || _avatar == null) ? AppTheme.successGreen : AppTheme.errorRed;
+          : (avatarQueued
+                ? 'تم إضافة المريض وإدراج الصورة بطابور الرفع'
+                : 'تم إضافة المريض (تعذر تجهيز الصورة للرفع)');
+      final color =
+          (avatarQueued || _avatar == null) ? AppTheme.successGreen : AppTheme.errorRed;
 
       if (created != null) {
         await _localRepository.upsertPatients([created]);

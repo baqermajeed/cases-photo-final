@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' as intl;
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import '../core/theme/app_theme.dart';
 import '../models/patient.dart';
 import '../repositories/local/patient_local_repository.dart';
 import '../repositories/remote/patient_remote_repository.dart';
-import '../services/sync_service.dart';
 import 'patient_detail_screen.dart';
 
 class CompletedPatientsScreen extends StatefulWidget {
@@ -19,18 +17,42 @@ class CompletedPatientsScreen extends StatefulWidget {
 class _CompletedPatientsScreenState extends State<CompletedPatientsScreen> {
   final _localRepository = PatientLocalRepository.instance;
   final _remoteRepository = PatientRemoteRepository();
-  final _syncService = SyncService.instance;
 
-  Future<void> _handleRefresh() async {
-    final synced = await _syncService.syncNow();
-    if (!synced && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('لا يوجد اتصال بالإنترنت'),
-          backgroundColor: AppTheme.errorRed,
-        ),
-      );
+  List<Patient> _patients = [];
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPatients();
+  }
+
+  Future<void> _loadPatients() async {
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
     }
+
+    final result = await _remoteRepository.getCompletedPatients();
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      final patients = result['patients'] as List<Patient>;
+      await _localRepository.upsertPatients(patients);
+      setState(() {
+        _patients = patients;
+        _isLoading = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _error = result['message']?.toString() ?? 'فشل جلب المرضى المكتملين';
+      _isLoading = false;
+    });
   }
 
   Future<void> _deletePatient(Patient patient) async {
@@ -61,7 +83,7 @@ class _CompletedPatientsScreenState extends State<CompletedPatientsScreen> {
       final result = await _remoteRepository.deletePatient(patient.id);
       if (mounted) {
         if (result['success'] == true) {
-          await _syncService.syncNow();
+          await _loadPatients();
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('تم حذف المريض بنجاح'),
@@ -78,6 +100,79 @@ class _CompletedPatientsScreenState extends State<CompletedPatientsScreen> {
         }
       }
     }
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(_error!, textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _loadPatients,
+                child: const Text('إعادة المحاولة'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_patients.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.check_circle_outline,
+              size: 80,
+              color: AppTheme.successGreen.withOpacity(0.5),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'لا توجد حالات مكتملة بعد',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadPatients,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _patients.length,
+        itemBuilder: (context, index) {
+          final patient = _patients[index];
+          return _CompletedPatientCard(
+            patient: patient,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PatientDetailScreen(
+                    patientId: patient.id,
+                  ),
+                ),
+              );
+            },
+            onDelete: () => _deletePatient(patient),
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -101,59 +196,7 @@ class _CompletedPatientsScreenState extends State<CompletedPatientsScreen> {
             onPressed: () => Navigator.pop(context),
           ),
         ),
-        body: ValueListenableBuilder<Box<Patient>>(
-          valueListenable: _localRepository.listenable,
-          builder: (context, box, _) {
-            final patients = _localRepository
-                .getPatients(where: (p) => p.progressPercentage >= 100);
-            if (patients.isEmpty) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.check_circle_outline,
-                      size: 80,
-                      color: AppTheme.successGreen.withOpacity(0.5),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'لا توجد حالات مكتملة بعد',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-            return RefreshIndicator(
-              onRefresh: _handleRefresh,
-              child: ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: patients.length,
-                itemBuilder: (context, index) {
-                  final patient = patients[index];
-                  return _CompletedPatientCard(
-                    patient: patient,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => PatientDetailScreen(
-                            patientId: patient.id,
-                          ),
-                        ),
-                      );
-                    },
-                    onDelete: () => _deletePatient(patient),
-                  );
-                },
-              ),
-            );
-          },
-        ),
+        body: _buildBody(),
       ),
     );
   }
@@ -174,7 +217,6 @@ class _CompletedPatientCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final dateFormat = intl.DateFormat('dd/MM/yyyy', 'ar');
 
-    // جلب الصورة
     String? avatarUrl;
     try {
       final step1 = patient.steps.firstWhere((s) => s.stepNumber == 1);
@@ -210,7 +252,6 @@ class _CompletedPatientCard extends StatelessWidget {
             padding: const EdgeInsets.all(12),
             child: Row(
               children: [
-                // الصورة
                 Container(
                   width: 70,
                   height: 85,
@@ -261,7 +302,6 @@ class _CompletedPatientCard extends StatelessWidget {
                         ),
                 ),
                 const SizedBox(width: 14),
-                // المعلومات
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -333,7 +373,6 @@ class _CompletedPatientCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                // زر حذف
                 IconButton(
                   onPressed: onDelete,
                   icon: const Icon(

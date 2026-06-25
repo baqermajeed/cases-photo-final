@@ -6,6 +6,7 @@ import '../models/patient.dart';
 import '../repositories/local/patient_local_repository.dart';
 import '../repositories/remote/patient_remote_repository.dart';
 import 'network_checker.dart';
+import 'upload_queue_service.dart';
 
 class SyncService {
   SyncService._();
@@ -31,6 +32,7 @@ class SyncService {
     if (!_localRepository.isInitialized) {
       await _localRepository.init();
     }
+    await UploadQueueService.instance.initialize();
 
     _startPeriodicSync();
     _startConnectivityWatcher();
@@ -97,8 +99,10 @@ class SyncService {
   }
 
   void _startPeriodicSync() {
-    _periodicTimer ??=
-        Timer.periodic(const Duration(minutes: 2), (_) => syncNow());
+    _periodicTimer ??= Timer.periodic(const Duration(minutes: 2), (_) async {
+      await syncNow();
+      await UploadQueueService.instance.runNow();
+    });
   }
 
   void _startConnectivityWatcher() {
@@ -108,6 +112,11 @@ class SyncService {
       if (online && !_wasOnline) {
         _wasOnline = true;
         await syncNow();
+        await UploadQueueService.instance.wakePendingNow();
+        await UploadQueueService.instance.runNow();
+      } else if (online) {
+        await UploadQueueService.instance.wakePendingNow();
+        await UploadQueueService.instance.runNow();
       } else if (!online) {
         _wasOnline = false;
       }

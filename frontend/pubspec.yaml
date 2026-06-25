@@ -68,6 +68,9 @@ dependencies:
   
   # Dio for downloading
   dio: ^5.4.0
+
+  # Image compression before queue upload
+  flutter_image_compress: ^2.3.0
   
   # Path provider
   path_provider: ^2.1.2

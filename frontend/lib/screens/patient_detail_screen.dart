@@ -17,12 +17,18 @@ import '../repositories/local/patient_local_repository.dart';
 import '../repositories/remote/patient_remote_repository.dart';
 import '../services/auth_service.dart';
 import '../services/sync_service.dart';
+import '../services/upload_queue_service.dart';
 import 'login_screen.dart';
 
 class PatientDetailScreen extends StatefulWidget {
   final String patientId;
+  final Patient? initialPatient;
   
-  const PatientDetailScreen({super.key, required this.patientId});
+  const PatientDetailScreen({
+    super.key,
+    required this.patientId,
+    this.initialPatient,
+  });
 
   @override
   State<PatientDetailScreen> createState() => _PatientDetailScreenState();
@@ -63,6 +69,11 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _patient = widget.initialPatient;
+    _isLoading = _patient == null;
+    if (_patient != null) {
+      unawaited(_localRepository.upsertPatients([_patient!]));
+    }
     _patientsListenable = _localRepository.listenable;
     _patientsListenable.addListener(_onPatientsChanged);
     _onPatientsChanged();
@@ -200,7 +211,7 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> {
     return true;
   }
 
-  Future<void> _pickImages(int stepNumber) async {
+  Future<void> _pickImages(Step step) async {
     // اختر المصدر أولاً
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
@@ -245,64 +256,33 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> {
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
 
-    final result = await _remoteRepository.uploadImages(
+    final patientName = _patient?.name ?? 'مريض';
+    final enqueued = await UploadQueueService.instance.enqueuePickedImages(
       patientId: widget.patientId,
-      stepNumber: stepNumber,
+      patientName: patientName,
+      stepNumber: step.stepNumber,
+      stepTitle: step.title,
       images: images,
     );
 
     if (!mounted) return;
     Navigator.pop(context);
-    if (result['success'] == true) {
-      final data = result['data'];
-      if (data != null) {
-        final updatedStep = Step.fromJson(Map<String, dynamic>.from(data));
-        await _updateStepLocal(updatedStep);
-      }
-      unawaited(_syncService.syncNow());
+    if (enqueued > 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('تم رفع ${images.length} صورة'),
+          content: Text(
+            'تمت إضافة $enqueued صورة للطابور، وسيستمر الرفع تلقائياً',
+          ),
           backgroundColor: AppTheme.successGreen,
         ),
       );
     } else {
-      if (await _handleSessionExpired(result)) return;
-      final msg = result['message']?.toString() ?? 'فشل الرفع';
-      if (msg.contains('الإنترنت')) {
-        await Dialogs.showNoInternetDialog(context);
-      } else {
-        final retry = await Dialogs.showErrorRetryDialog(context, msg);
-        if (retry) {
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (_) => const Center(child: CircularProgressIndicator()),
-          );
-          final again = await _remoteRepository.uploadImages(
-            patientId: widget.patientId,
-            stepNumber: stepNumber,
-            images: images,
-          );
-          if (!mounted) return;
-          Navigator.pop(context);
-          if (again['success'] == true) {
-            final againData = again['data'];
-            if (againData != null) {
-              final updatedStep =
-                  Step.fromJson(Map<String, dynamic>.from(againData));
-              await _updateStepLocal(updatedStep);
-            }
-            unawaited(_syncService.syncNow());
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('تم رفع الصور بنجاح'),
-                backgroundColor: AppTheme.successGreen,
-              ),
-            );
-          }
-        }
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تعذر تجهيز الصور للطابور'),
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
     }
   }
 
@@ -905,7 +885,7 @@ class _PatientDetailScreenState extends State<PatientDetailScreen> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: IconButton(
-                  onPressed: () => _pickImages(step.stepNumber),
+                  onPressed: () => _pickImages(step),
                   icon: const Icon(Icons.add_a_photo_outlined, size: 18, color: Color(0xFF5BA8D0)),
                   padding: const EdgeInsets.all(6),
                   constraints: const BoxConstraints(),

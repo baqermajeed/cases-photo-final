@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' as intl;
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import '../core/theme/app_theme.dart';
 import '../models/patient.dart';
 import '../repositories/local/patient_local_repository.dart';
-import '../services/sync_service.dart';
+import '../repositories/remote/patient_remote_repository.dart';
 import 'patient_detail_screen.dart';
 
 class AllPatientsScreen extends StatefulWidget {
@@ -17,15 +16,94 @@ class AllPatientsScreen extends StatefulWidget {
 
 class _AllPatientsScreenState extends State<AllPatientsScreen> {
   final _localRepository = PatientLocalRepository.instance;
-  final _syncService = SyncService.instance;
+  final _remoteRepository = PatientRemoteRepository();
 
-  Future<void> _handleRefresh() async {
-    final synced = await _syncService.syncNow();
-    if (!synced && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('لا يوجد اتصال بالإنترنت'), backgroundColor: AppTheme.errorRed),
+  List<Patient> _patients = [];
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPatients();
+  }
+
+  Future<void> _loadPatients() async {
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    }
+
+    final result = await _remoteRepository.getAllPatients();
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      final patients = result['patients'] as List<Patient>;
+      await _localRepository.upsertPatients(patients);
+      setState(() {
+        _patients = patients;
+        _isLoading = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _error = result['message']?.toString() ?? 'فشل جلب المرضى';
+      _isLoading = false;
+    });
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(_error!, textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _loadPatients,
+                child: const Text('إعادة المحاولة'),
+              ),
+            ],
+          ),
+        ),
       );
     }
+
+    if (_patients.isEmpty) {
+      return const Center(child: Text('لا يوجد مرضى بعد'));
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadPatients,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _patients.length,
+        itemBuilder: (context, index) {
+          final patient = _patients[index];
+          return _PatientRow(
+            patient: patient,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PatientDetailScreen(patientId: patient.id),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -40,38 +118,7 @@ class _AllPatientsScreenState extends State<AllPatientsScreen> {
             onPressed: () => Navigator.pop(context),
           ),
         ),
-        body: ValueListenableBuilder<Box<Patient>>(
-          valueListenable: _localRepository.listenable,
-          builder: (context, box, _) {
-            final patients = _localRepository.getPatients();
-            if (patients.isEmpty) {
-              return const Center(
-                child: Text('لا يوجد مرضى بعد'),
-              );
-            }
-            return RefreshIndicator(
-              onRefresh: _handleRefresh,
-              child: ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: patients.length,
-                itemBuilder: (context, index) {
-                  final patient = patients[index];
-                  return _PatientRow(
-                    patient: patient,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => PatientDetailScreen(patientId: patient.id),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-            );
-          },
-        ),
+        body: _buildBody(),
       ),
     );
   }
@@ -158,4 +205,3 @@ class _PatientRow extends StatelessWidget {
     );
   }
 }
-

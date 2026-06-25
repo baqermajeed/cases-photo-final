@@ -6,13 +6,16 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../core/theme/app_theme.dart';
 import '../core/utils/dialogs.dart';
 import '../models/patient.dart';
+import '../models/pending_upload.dart';
 import '../models/user.dart';
 import '../repositories/local/patient_local_repository.dart';
+import '../repositories/local/pending_upload_repository.dart';
 import '../repositories/remote/patient_remote_repository.dart';
 import '../services/auth_service.dart';
 import '../services/network_checker.dart';
 import '../services/sync_service.dart';
 import 'add_patient_screen.dart';
+import 'pending_uploads_screen.dart';
 import 'patient_detail_screen.dart';
 import 'profile_screen.dart';
 import 'login_screen.dart';
@@ -31,6 +34,7 @@ class _PatientsListScreenState extends State<PatientsListScreen> {
   final _authService = AuthService();
   final _localRepository = PatientLocalRepository.instance;
   final _syncService = SyncService.instance;
+  final _pendingRepository = PendingUploadRepository.instance;
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
   String? _searchQuery;
@@ -365,6 +369,69 @@ class _PatientsListScreenState extends State<PatientsListScreen> {
             ),
           ),
           actions: [
+            if (_pendingRepository.isInitialized)
+              ValueListenableBuilder<Box<PendingUpload>>(
+                valueListenable: _pendingRepository.listenable,
+                builder: (context, _, __) {
+                  final pendingCount = _pendingRepository.count;
+                  return IconButton(
+                    tooltip: 'الرفوعات المعلّقة',
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const PendingUploadsScreen(),
+                        ),
+                      );
+                    },
+                    icon: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0EA5E9).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(
+                            Icons.cloud_upload_outlined,
+                            size: 20,
+                            color: Color(0xFF0284C7),
+                          ),
+                        ),
+                        if (pendingCount > 0)
+                          Positioned(
+                            left: -4,
+                            top: -6,
+                            child: Container(
+                              constraints: const BoxConstraints(
+                                minWidth: 18,
+                                minHeight: 18,
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 2,
+                              ),
+                              decoration: const BoxDecoration(
+                                color: AppTheme.errorRed,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Text(
+                                pendingCount > 99 ? '99+' : '$pendingCount',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                },
+              ),
             IconButton(
               icon: Container(
                 padding: const EdgeInsets.all(8),
@@ -521,6 +588,7 @@ class _PatientsListScreenState extends State<PatientsListScreen> {
                                   MaterialPageRoute(
                                     builder: (_) => PatientDetailScreen(
                                       patientId: patient.id,
+                                      initialPatient: patient,
                                     ),
                                   ),
                                 );

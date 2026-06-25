@@ -35,6 +35,12 @@ async def get_completed_patients():
     return {"success": True, "data": patients}
 
 
+@router.get("/filter/incomplete")
+async def get_incomplete_patients():
+    patients = await patient_service.get_incomplete_patients()
+    return {"success": True, "data": patients}
+
+
 @router.get("/filter/completed/phase/{phase}")
 async def get_completed_by_phase(phase: int = Path(..., ge=1, le=4)):
     patients = await patient_service.get_patients_completed_phase(phase)
